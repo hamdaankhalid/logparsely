@@ -1,4 +1,3 @@
-use core::time;
 use rusqlite::Connection;
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
@@ -138,7 +137,6 @@ impl EvolvingWideTable {
             self.table_name, joined_cols, joined_vals
         );
 
-        // TODO: Fix unwrap!
         if let Err(e) = self.conn.execute(
             &insert_stmt,
             sqlite_vals
@@ -188,7 +186,7 @@ fn flatten_json_recursive(json: &Value, prefix: String, result: &mut HashMap<Str
 // IO redirection from child -> Flat transform -> Shove into wide table store (adapt schema
 // internally)
 fn transformation(
-    child: &mut Child,
+    mut child: Child,
     src_name: &str,
     db_path: &PathBuf,
     signal: Arc<Mutex<SharedState>>,
@@ -208,16 +206,38 @@ fn transformation(
         }
     };
 
-    for line_res in lines {
-        let mut signal_lock = signal.lock().unwrap();
-        if signal_lock.should_stop() {
-            println!("Ingestion Thread: Received stop signal. Exiting.");
-            signal_lock.decr();
-            let _ = child.kill();
-            return;
-        }  
-        drop(signal_lock);
+    let monitor = thread::spawn({
+        let sig = Arc::clone(&signal);
+        move || {
+            loop {
+                let mut signal_lock = sig.lock().unwrap();
+                
+                // if it finished on it's own..great!
+                if let Ok(Some(_)) = child.try_wait() {
+                    signal_lock.decr();
+                    let _ = child.kill();
+                    return;
+                }
 
+                // signal to finish has been recvd, so we need to kill the command underneath
+                if signal_lock.should_stop() {
+                    println!("Ingestion Thread: Received stop signal. Exiting.");
+                    signal_lock.decr();
+                    match child.kill() {
+                        Ok(_) => {},
+                        Err(_) => {
+                            eprintln!("Child command kicked by background thread failed to exit, please kill process using pid");
+                        },
+                    }
+                    return;
+                }
+                drop(signal_lock);
+                thread::sleep(Duration::from_secs(1));
+            }
+        }
+    });
+
+    for line_res in lines {
         match line_res {
             Err(_) => {
                 eprintln!("Error reading line");
@@ -236,22 +256,11 @@ fn transformation(
         }
     }
 
-    loop {
-        let mut signal_lock = signal.lock().unwrap();
-        if let Ok(Some(_)) = child.try_wait() {
-            println!("Ingestion Thread: exited!");
-            signal_lock.decr();
-            return;
+    match monitor.join() {
+        Ok(_) => {},
+        Err(e) => {
+            eprintln!("Unexpected error in monitoring thread: {:?}", e);
         }
-
-        if signal_lock.should_stop() {
-            println!("Ingestion Thread: Received stop signal. Exiting.");
-            let _ = child.kill();
-            signal_lock.decr();
-            return;
-        }
-        drop(signal_lock);
-        thread::sleep(time::Duration::from_secs(2));
     }
 }
 
@@ -261,7 +270,7 @@ fn add_src(
     signal: Arc<Mutex<SharedState>>,
 ) -> Result<(), Box<dyn Error>> {
     // check if file exists
-    let mut command = Command::new("sh")
+    let command = Command::new("sh")
         .arg("-c")
         .arg(cmd)
         .stdout(Stdio::piped())
@@ -272,10 +281,10 @@ fn add_src(
     signal.lock().unwrap().incr();
 
     // kick off a task to read in data from the child into tmp file
-    let _ = thread::spawn({
+    thread::spawn({
         let src_name_cl = src_name.clone();
         let db_file_path_cl = db_file_path.clone();
-        move || transformation(&mut command, &src_name_cl, &db_file_path_cl, signal)
+        move || transformation(command, &src_name_cl, &db_file_path_cl, signal)
     });
 
     Ok(())
@@ -394,16 +403,16 @@ fn main() {
             }
         }
     }
-    // kill the child processes
+
+    // signal kill the child processes that were created in transformer threads
     let mut sig = shared_signal.lock().unwrap();
     sig.stop();
-    println!("Signal sent");
     drop(sig);
     println!("Closing background tasks");
     loop {
         let sig = shared_signal.lock().unwrap();
 
-        println!("waiting.... (if you can force an extra log I can exit faster)");
+        println!("waiting for children to exit....");
         if sig.ctr <= 0 {
             break;
         }
