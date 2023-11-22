@@ -184,7 +184,9 @@ fn flatten_json_recursive(json: &Value, prefix: String, result: &mut HashMap<Str
     };
 }
 
-// IO redirection from child -> Flat transform -> Shove into wide table store
+// Ingestion Thread Task
+// IO redirection from child -> Flat transform -> Shove into wide table store (adapt schema
+// internally)
 fn transformation(
     child: &mut Child,
     src_name: &str,
@@ -207,13 +209,13 @@ fn transformation(
     };
 
     for line_res in lines {
-        let signal_lock = signal.lock().unwrap();
+        let mut signal_lock = signal.lock().unwrap();
         if signal_lock.should_stop() {
-            println!("Thread: Received stop signal. Exiting.");
-            signal.lock().unwrap().decr();
+            println!("Ingestion Thread: Received stop signal. Exiting.");
+            signal_lock.decr();
             let _ = child.kill();
             return;
-        }
+        }  
         drop(signal_lock);
 
         match line_res {
@@ -223,7 +225,6 @@ fn transformation(
             Ok(line) => {
                 match serde_json::from_str::<serde_json::Value>(&line) {
                     Ok(json_val) => {
-                        // if line is a JSON object then flatten it out
                         if let Some(_) = json_val.as_object() {
                             let flattened_map = flatten_json(&json_val);
                             wide_table.insert_data(flattened_map);
@@ -238,15 +239,15 @@ fn transformation(
     loop {
         let mut signal_lock = signal.lock().unwrap();
         if let Ok(Some(_)) = child.try_wait() {
-            println!("Thread: exited!");
+            println!("Ingestion Thread: exited!");
             signal_lock.decr();
             return;
         }
 
         if signal_lock.should_stop() {
-            println!("Thread: Received stop signal. Exiting.");
-            signal.lock().unwrap().decr();
+            println!("Ingestion Thread: Received stop signal. Exiting.");
             let _ = child.kill();
+            signal_lock.decr();
             return;
         }
         drop(signal_lock);
@@ -402,11 +403,11 @@ fn main() {
     loop {
         let sig = shared_signal.lock().unwrap();
 
-        println!("Sig ctr {}", sig.ctr);
+        println!("waiting.... (if you can force an extra log I can exit faster)");
         if sig.ctr <= 0 {
             break;
         }
-        thread::sleep(Duration::from_secs(1));
+        thread::sleep(Duration::from_secs(2));
     }
 
     println!(
