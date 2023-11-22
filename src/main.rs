@@ -211,7 +211,7 @@ fn transformation(
         move || {
             loop {
                 let mut signal_lock = sig.lock().unwrap();
-                
+
                 // if it finished on it's own..great!
                 if let Ok(Some(_)) = child.try_wait() {
                     signal_lock.decr();
@@ -224,10 +224,10 @@ fn transformation(
                     println!("Ingestion Thread: Received stop signal. Exiting.");
                     signal_lock.decr();
                     match child.kill() {
-                        Ok(_) => {},
+                        Ok(_) => {}
                         Err(_) => {
                             eprintln!("Child command kicked by background thread failed to exit, please kill process using pid");
-                        },
+                        }
                     }
                     return;
                 }
@@ -257,7 +257,7 @@ fn transformation(
     }
 
     match monitor.join() {
-        Ok(_) => {},
+        Ok(_) => {}
         Err(e) => {
             eprintln!("Unexpected error in monitoring thread: {:?}", e);
         }
@@ -269,7 +269,6 @@ fn add_src(
     db_file_path: &PathBuf,
     signal: Arc<Mutex<SharedState>>,
 ) -> Result<(), Box<dyn Error>> {
-    // check if file exists
     let command = Command::new("sh")
         .arg("-c")
         .arg(cmd)
@@ -280,7 +279,6 @@ fn add_src(
 
     signal.lock().unwrap().incr();
 
-    // kick off a task to read in data from the child into tmp file
     thread::spawn({
         let src_name_cl = src_name.clone();
         let db_file_path_cl = db_file_path.clone();
@@ -319,16 +317,14 @@ fn add_data_sources_repl(
             "DONE" => {
                 run = false;
             }
-            _ => {
-                match add_src(user_input.trim(), db_file, Arc::clone(&signal)) {
-                    Ok(_) => {
-                        println!("data source added");
-                    }
-                    Err(_) => {
-                        println!("err in child keep looping")
-                    } // TODO: error handling
+            _ => match add_src(user_input.trim(), db_file, Arc::clone(&signal)) {
+                Ok(_) => {
+                    println!("data source added");
                 }
-            }
+                Err(_) => {
+                    println!("err in data source addition, try again");
+                }
+            },
         }
     }
 
