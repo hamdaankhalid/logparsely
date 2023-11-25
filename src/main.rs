@@ -1,4 +1,5 @@
 use cli::CommonArgs;
+use std::io::{self, Read};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::{env, path::PathBuf};
@@ -519,6 +520,17 @@ fn get_db_path(common_args: CommonArgs) -> Result<PathBuf, ()> {
     return Ok(db_dir_path);
 }
 
+fn read_key() -> Option<char> {
+    let mut buffer = [0; 1];
+
+    // Read a single character from standard input
+    if let Ok(()) = io::stdin().read_exact(&mut buffer) {
+        Some(buffer[0] as char)
+    } else {
+        None
+    }
+}
+
 fn main() {
     let args = match cli_arg_parser() {
         Ok(v) => v,
@@ -538,21 +550,36 @@ fn main() {
                 db.to_str().unwrap()
             );
             interactive_mode(&db, Arc::clone(&shared_signal));
-            blocking_kill_children(Arc::clone(&shared_signal));
 
+            blocking_kill_children(Arc::clone(&shared_signal));
             println!("All data has been saved to {}", db.to_str().unwrap());
         }
         Mode::Noninteractive { common_args, args } => {
             let db = get_db_path(common_args).expect("");
+            let db_str = db.to_str().unwrap();
+
             println!(
                 "All data is being streamed into SQLITE DB: {}",
-                db.to_str().unwrap()
+                db_str.to_string()
             );
-            noninteractive_mode(&db, args.srcs, Arc::clone(&shared_signal));
-            // TODO: block till we get hit with a kill signal and make sure we pause for children to be
-            // killed
-            blocking_kill_children(Arc::clone(&shared_signal));
 
+            let cloned_signal = Arc::clone(&shared_signal);
+
+            ctrlc::set_handler(move || {
+                blocking_kill_children(cloned_signal.clone());
+            })
+            .expect("Error setting sigkill handler");
+
+            // sigkill cleanup handler
+            noninteractive_mode(&db, args.srcs, Arc::clone(&shared_signal));
+
+            println!("Press Q to exit");
+            while read_key() != Some('q') {
+                // Wait for a short duration
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+
+            blocking_kill_children(shared_signal.clone());
             println!("All data has been saved to {}", db.to_str().unwrap());
         }
     }
