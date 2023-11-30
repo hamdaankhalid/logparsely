@@ -9,7 +9,20 @@ IF %ErrorLevel% NEQ 0 @"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.
 rustup --help >> NUL
 IF %ErrorLevel% NEQ 0 choco install rustup.install -y --version %rustupVersion%
 
-sqlite3 -version >> NULL
-IF %ErrorLevel% NEQ 0 choco install sqlitebrowser -y --version %sqliteVersion%
+set "url=https://download.sqlitebrowser.org/SQLiteDatabaseBrowserPortable_3.12.2_English.paf.exe"
+set "outputFile=SQLiteDatabaseBrowserPortable_3.12.2_English.paf.exe"
+set "installerPath=%outputFile%"
+
+curl -O %url%
+
+if %errorlevel% neq 0 (
+    echo Error: Failed to download the sqlitebrowser installer file.
+    exit /b 1
+)
+
+echo Download completed successfully.
+
+echo Running the installer...
+start "" "%installerPath%"
 
 refreshenv
