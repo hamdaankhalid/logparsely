@@ -24,7 +24,6 @@ https://sqlitebrowser.org/about/
 
 - Run in git bash, WSL, or on a Unix-like system
 - Pull repo
-- Download Sqlite Browser
-- Install rust using rustup, this will also install Cargo for you
-- Compile and run code using the following command:\
-  `cargo run noninteractive -s "docker logs web -f" -s "docker logs worker -f" -s "docker logs billing -f"`
+- Run `./setup.bat` (terminal must be in administrator mode for running these commands)
+- Compile and run code using the following command:
+- `cargo run noninteractive -s "docker logs web -f" -s "docker logs worker -f" -s "docker logs billing -f"`
