@@ -16,14 +16,14 @@
 - Queries can then be ran over the said sparse matrix like wide tables using sqlite as a query layer and ANY SQLITE UI of your choice!
 
 ## Query Layer:
+
 Please download the great work by the sqlite browser team and use their wonderful UI to browse your logs.
 https://sqlitebrowser.org/about/
 
 ## Setup:
+
 - Run in git bash, WSL, or on a Unix-like system
 - Pull repo
-- Download Sqlite Browser
-- Install rust using rustup, this will also install Cargo for you
+- Run `./setup.bat` (terminal must be in administrator mode for running these commands)
 - Compile and run code using the following command:
-cargo run noninteractive -s "docker logs web -f" -s docker logs worker -f" -s docker logs billing -f"
-
+- `cargo run noninteractive -s "docker logs web -f" -s "docker logs worker -f" -s "docker logs billing -f"`
