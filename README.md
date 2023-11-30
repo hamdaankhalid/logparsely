@@ -20,6 +20,7 @@ Please download the great work by the sqlite browser team and use their wonderfu
 https://sqlitebrowser.org/about/
 
 ## Setup:
+- Run in git bash, WSL, or on a Unix-like system
 - Pull repo
 - Download Sqlite Browser
 - Install rust using rustup, this will also install Cargo for you
