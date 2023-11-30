@@ -2,7 +2,7 @@ use cli::CommonArgs;
 use std::io::{self, Read};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
-use std::{env, path::PathBuf};
+use std::{env, path::PathBuf, fs};
 use uuid::Uuid;
 
 use crate::cli::{
@@ -307,7 +307,13 @@ mod ingestion {
             .stdout(Stdio::piped())
             .spawn()?;
 
-        let src_name = cmd.replace(" ", "_").replace(".", "_").replace("-", "_");
+        // sanitize name for table creation
+        let src_name = cmd.replace(" ", "_")
+            .replace(".", "_")
+            .replace("-", "_")
+            .replace("/", "_")
+            .replace("\\", "_")
+            .replace("~", "HOME");
 
         signal.lock().unwrap().incr();
 
@@ -324,7 +330,7 @@ mod ingestion {
 mod cli {
     use std::{
         error::Error,
-        io,
+        io::{self, Write},
         path::PathBuf,
         sync::{Arc, Mutex},
         thread,
@@ -390,9 +396,13 @@ mod cli {
             println!("{}", TOP_LEVEL_MENU);
 
             let mut user_input = String::new();
+ 
+            io::stdout().flush().expect("fialed to flush stdout");
+
             io::stdin()
                 .read_line(&mut user_input)
                 .expect("Failed to read line");
+
 
             let choice: u32 = match user_input.trim().parse() {
                 Ok(num) => num,
@@ -444,10 +454,10 @@ mod cli {
 
     pub fn blocking_kill_children(shared_signal: Arc<Mutex<SharedState>>) {
         // signal kill the child processes that were created in transformer threads
+        println!("Closing background tasks");
         let mut sig = shared_signal.lock().unwrap();
         sig.stop();
         drop(sig);
-        println!("Closing background tasks");
         loop {
             let sig = shared_signal.lock().unwrap();
 
@@ -468,6 +478,8 @@ mod cli {
 
     #[derive(Parser, Debug, Clone)]
     pub enum Mode {
+        #[clap(name = "purge")]
+        Purge,
         #[clap(name = "noninteractive")]
         Noninteractive {
             #[clap(flatten)]
@@ -497,6 +509,33 @@ mod cli {
     pub fn cli_arg_parser() -> Result<CliArgs, String> {
         let args = CliArgs::parse();
         Ok(args)
+    }
+}
+
+fn purge() {
+    let tmp_path = env::temp_dir();
+    if let Ok(entries) = fs::read_dir(tmp_path) {
+        for entry in entries {
+            if let Ok(entry) = entry {
+                let file_path = entry.path();
+
+                // Check if the entry is a file and matches the regex pattern
+                if file_path.is_file() {
+                    if let Some(file_name) = file_path.file_name() {
+                        if let Some(file_name_str) = file_name.to_str() {
+                            if file_name_str.ends_with("-logparsely.db") {
+                                // delete file
+                                if let Err(err) = fs::remove_file(file_path) {
+                                    eprintln!("Error deleting the file: {}", err);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    } else {
+        eprintln!("Failed to read directory");
     }
 }
 
@@ -563,24 +602,22 @@ fn main() {
                 db_str.to_string()
             );
 
-            let cloned_signal = Arc::clone(&shared_signal);
-
-            ctrlc::set_handler(move || {
-                blocking_kill_children(cloned_signal.clone());
-            })
-            .expect("Error setting sigkill handler");
-
             // sigkill cleanup handler
             noninteractive_mode(&db, args.srcs, Arc::clone(&shared_signal));
 
-            println!("Press Q to exit");
+            println!("Press 'q' to exit");
             while read_key() != Some('q') {
                 // Wait for a short duration
-                std::thread::sleep(std::time::Duration::from_millis(100));
+                std::thread::sleep(std::time::Duration::from_millis(500));
             }
 
             blocking_kill_children(shared_signal.clone());
             println!("All data has been saved to {}", db.to_str().unwrap());
+        },
+        Mode::Purge => {
+            println!("Purging all data files from temp storage");
+            purge();    
+            println!("Temp data files cleaned");
         }
     }
 }
