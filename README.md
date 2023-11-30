@@ -18,3 +18,11 @@
 ## Query Layer:
 Please download the great work by the sqlite browser team and use their wonderful UI to browse your logs.
 https://sqlitebrowser.org/about/
+
+## Setup:
+- Pull repo
+- Download Sqlite Browser
+- Install rust using rustup, this will also install Cargo for you
+- Compile and run code using the following command:
+cargo run noninteractive -s "docker logs web -f" -s docker logs worker -f" -s docker logs billing -f"
+
